@@ -82,6 +82,9 @@ type etcdProcess struct {
 	Cluster    *protoetcd.EtcdCluster
 	MyNodeName string
 
+	// RestoreFlag indicates if this etcd process is for restoring from backup
+	RestoreFlag bool
+
 	// Quarantined indicates if this process should be quarantined - we will use the QuarantinedClientUrls if so
 	Quarantined bool
 
@@ -214,7 +217,8 @@ func (p *etcdProcess) Start() error {
 	env["ETCD_INITIAL_ADVERTISE_PEER_URLS"] = strings.Join(me.PeerUrls, ",")
 
 	// This is only supported in 3.3 and later, but by using an env var it simply won't be picked up
-	if len(p.ListenMetricsURLs) != 0 {
+	// If the etcd process is for restoring backup, do not set ListenMetricsURLs to avoid port conflict
+	if len(p.ListenMetricsURLs) != 0 && !p.RestoreFlag {
 		env["ETCD_LISTEN_METRICS_URLS"] = strings.Join(p.ListenMetricsURLs, ",")
 	}
 

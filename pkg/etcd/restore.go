@@ -166,6 +166,7 @@ func RunEtcdFromBackup(backupStore backup.Store, backupName string, basedir stri
 		MyNodeName:    myNodeName,
 		ListenAddress: "127.0.0.1",
 		DisableTLS:    false,
+		RestoreFlag:   true,
 	}
 
 	var etcdClientsCA *pki.Keypair
