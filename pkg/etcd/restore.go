@@ -19,6 +19,7 @@ package etcd
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -73,8 +74,9 @@ func (s *EtcdServer) DoRestore(ctx context.Context, request *protoetcd.DoRestore
 		}
 	}()
 
-	p, err := RunEtcdFromBackup(backupStore, request.BackupName, tempDir)
+	p, err := RunEtcdFromBackup(backupStore, request.BackupName, tempDir, s.etcdNodeConfiguration)
 	if err != nil {
+		klog.Errorf("RunEtcdFromBackup failed %v", err)
 		return nil, err
 	}
 
@@ -88,18 +90,20 @@ func (s *EtcdServer) DoRestore(ctx context.Context, request *protoetcd.DoRestore
 
 	destClient, err := s.process.NewClient()
 	if err != nil {
+		klog.Errorf("etcdclient creation failed %v", err)
 		return nil, fmt.Errorf("error building etcd client for target: %v", err)
 	}
 	defer destClient.Close()
 
 	if err := copyEtcd(p, destClient); err != nil {
+		klog.Errorf("copyEtcd failed %v", err)
 		return nil, err
 	}
 
 	return response, nil
 }
 
-func RunEtcdFromBackup(backupStore backup.Store, backupName string, basedir string) (*etcdProcess, error) {
+func RunEtcdFromBackup(backupStore backup.Store, backupName string, basedir string, node *protoetcd.EtcdNode) (*etcdProcess, error) {
 	dataDir := filepath.Join(basedir, "data")
 	pkiDir := filepath.Join(basedir, "pki")
 	clusterToken := filepath.Base(dataDir)
@@ -145,6 +149,32 @@ func RunEtcdFromBackup(backupStore backup.Store, backupName string, basedir stri
 	// TODO: randomize port
 	port := 8002
 	peerPort := 8003 // Needed because otherwise etcd won't start (sadly)
+
+	// If node is not nil, then add an offset to its port / peerport and use
+	// for restore process.
+	if node != nil {
+		portOffset := 10000
+		var nodeClientURL string
+		if len(node.ClientUrls) > 0 {
+			nodeClientURL = node.ClientUrls[0]
+		} else {
+			nodeClientURL = node.QuarantinedClientUrls[0]
+		}
+		nodePort, err := parsePortFromURL(nodeClientURL)
+		if err != nil {
+			klog.Errorf("parsePortFromURL failed, %v %v", nodeClientURL, err)
+		} else {
+			port = nodePort + portOffset
+		}
+		nodePeerPort, err := parsePortFromURL(node.PeerUrls[0])
+		if err != nil {
+			klog.Errorf("parsePortFromURL failed, %v %v", node.PeerUrls[0], err)
+		} else {
+			peerPort = nodePeerPort + portOffset
+		}
+	}
+
+	klog.Infof("client port %v peer port %v", port, peerPort)
 	clientUrl := "https://127.0.0.1:" + strconv.Itoa(port)
 	peerUrl := "https://127.0.0.1:" + strconv.Itoa(peerPort)
 	myNodeName := "restore"
@@ -258,4 +288,15 @@ func copyEtcd(source *etcdProcess, dest etcdclient.NodeSink) error {
 	}
 
 	return nil
+}
+
+func parsePortFromURL(URL string) (int, error) {
+	var port int
+	var err error
+	u, err := url.Parse(URL)
+	if err != nil {
+		klog.Errorf("fail to parse url, %v %v", URL, err)
+		return port, err
+	}
+	return strconv.Atoi(u.Port())
 }

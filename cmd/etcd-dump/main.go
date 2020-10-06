@@ -83,7 +83,7 @@ func runDump(backupFile string, out string) error {
 		}
 	}()
 
-	process, err := etcd.RunEtcdFromBackup(backupStore, backupName, tempDir)
+	process, err := etcd.RunEtcdFromBackup(backupStore, backupName, tempDir, nil)
 	if err != nil {
 		return err
 	}
